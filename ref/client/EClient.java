@@ -5,7 +5,9 @@ package com.ib.client;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import com.ib.client.Types.SecType;
 
@@ -189,6 +191,9 @@ public abstract class EClient {
     private static final int CANCEL_PNL = 93;
     private static final int REQ_PNL_SINGLE = 94;
     private static final int CANCEL_PNL_SINGLE = 95;
+    private static final int REQ_HISTORICAL_TICKS = 96;
+    private static final int REQ_TICK_BY_TICK_DATA = 97;
+    private static final int CANCEL_TICK_BY_TICK_DATA = 98;
 
 	private static final int MIN_SERVER_VER_REAL_TIME_BARS = 34;
 	private static final int MIN_SERVER_VER_SCALE_ORDERS = 35;
@@ -262,9 +267,18 @@ public abstract class EClient {
     protected static final int MIN_SERVER_VER_PNL = 127;
     protected static final int MIN_SERVER_VER_NEWS_QUERY_ORIGINS = 128;
     protected static final int MIN_SERVER_VER_UNREALIZED_PNL = 129;
+    protected static final int MIN_SERVER_VER_HISTORICAL_TICKS = 130;
+    protected static final int MIN_SERVER_VER_MARKET_CAP_PRICE = 131;
+    protected static final int MIN_SERVER_VER_PRE_OPEN_BID_ASK = 132;
+    protected static final int MIN_SERVER_VER_REAL_EXPIRATION_DATE = 134;
+    protected static final int MIN_SERVER_VER_REALIZED_PNL = 135;
+    protected static final int MIN_SERVER_VER_LAST_LIQUIDITY = 136;
+    protected static final int MIN_SERVER_VER_TICK_BY_TICK = 137;
+    protected static final int MIN_SERVER_VER_DECISION_MAKER = 138;
+    protected static final int MIN_SERVER_VER_MIFID_EXECUTION = 139;
     
     public static final int MIN_VERSION = 100; // envelope encoding, applicable to useV100Plus mode only
-    public static final int MAX_VERSION = MIN_SERVER_VER_UNREALIZED_PNL; // ditto
+    public static final int MAX_VERSION = MIN_SERVER_VER_MIFID_EXECUTION; // ditto
 
     protected EReaderSignal m_signal;
     protected EWrapper m_eWrapper;    // msg handler
@@ -285,7 +299,6 @@ public abstract class EClient {
     public int serverVersion()          { return m_serverVersion;   }
     public String getTwsConnectionTime()   { return m_TwsTime; }
     public EWrapper wrapper()           { return m_eWrapper; }
-//    public EReader reader()             { return m_reader; }
     public abstract boolean isConnected();
 
     // set
@@ -843,19 +856,7 @@ public abstract class EClient {
 
     		b.send(REQ_HEAD_TIMESTAMP);
     		b.send(tickerId);
-    		b.send(contract.conid());
-    		b.send(contract.symbol());
-    		b.send(contract.getSecType());
-    		b.send(contract.lastTradeDateOrContractMonth());
-    		b.send(contract.strike());
-    		b.send(contract.getRight());
-    		b.send(contract.multiplier());
-    		b.send(contract.exchange());
-    		b.send(contract.primaryExch());
-    		b.send(contract.currency());
-    		b.send(contract.localSymbol());
-    		b.send(contract.tradingClass());
-    		b.send(contract.includeExpired() ? 1 : 0);
+    		b.send(contract);
     		b.send(useRTH);
     		b.send(whatToShow);          
     		b.send(formatDate);
@@ -1490,6 +1491,23 @@ public abstract class EClient {
                 return;
             }
         }
+        
+        if (m_serverVersion < MIN_SERVER_VER_DECISION_MAKER
+            && (!IsEmpty(order.mifid2DecisionMaker())
+                || !IsEmpty(order.mifid2DecisionAlgo()))) {
+            error(id, EClientErrors.UPDATE_TWS,
+                    " It does not support MIFID II decision maker parameters");
+            return;
+        }
+
+        if (m_serverVersion < MIN_SERVER_VER_MIFID_EXECUTION
+                && (!IsEmpty(order.mifid2ExecutionTrader())
+                        || !IsEmpty(order.mifid2ExecutionAlgo()))) {
+            error(id, EClientErrors.UPDATE_TWS,
+                    " It does not support MIFID II execution parameters");
+            return;
+        }
+
 
         int VERSION = (m_serverVersion < MIN_SERVER_VER_NOT_HELD) ? 27 : 45;
 
@@ -1891,6 +1909,16 @@ public abstract class EClient {
 
            if (m_serverVersion >= MIN_SERVER_VER_CASH_QTY) {
                b.sendMax(order.cashQty());
+           }
+           
+           if (m_serverVersion >= MIN_SERVER_VER_DECISION_MAKER) {
+               b.send(order.mifid2DecisionMaker());
+               b.send(order.mifid2DecisionAlgo());
+           }
+           
+           if (m_serverVersion >= MIN_SERVER_VER_MIFID_EXECUTION) {
+               b.send(order.mifid2ExecutionTrader());
+               b.send(order.mifid2ExecutionAlgo());
            }
            
            closeAndSend(b);
@@ -3384,19 +3412,7 @@ public abstract class EClient {
 
     		b.send(REQ_HISTOGRAM_DATA);
     		b.send(tickerId);
-    		b.send(contract.conid());
-    		b.send(contract.symbol());
-    		b.send(contract.getSecType());
-    		b.send(contract.lastTradeDateOrContractMonth());
-    		b.send(contract.strike());
-    		b.send(contract.getRight());
-    		b.send(contract.multiplier());
-    		b.send(contract.exchange());
-    		b.send(contract.primaryExch());
-    		b.send(contract.currency());
-    		b.send(contract.localSymbol());
-    		b.send(contract.tradingClass());
-    		b.send(contract.includeExpired() ? 1 : 0);
+    		b.send(contract);
     		b.send(useRTH ? 1 : 0);
     		b.send(timePeriod);
 
@@ -3568,7 +3584,113 @@ public abstract class EClient {
             close();
         }
     }
+    
+    public synchronized void reqHistoricalTicks(int reqId, Contract contract, String startDateTime,
+            String endDateTime, int numberOfTicks, String whatToShow, int useRth, boolean ignoreSize,
+            List<TagValue> miscOptions) {
+        if( !isConnected()) {
+            notConnected();
+            return;
+        }
+
+        if (m_serverVersion < MIN_SERVER_VER_HISTORICAL_TICKS) {
+            error(reqId, EClientErrors.UPDATE_TWS,
+                    "  It does not support historical ticks request.");
+            return;
+        }
+        
+        try {
+            Builder b = prepareBuffer(); 
+            String miscOptionsString = Optional.ofNullable(miscOptions).orElse(new ArrayList<TagValue>()).stream().
+                    map(option -> option.m_tag + "=" + option.m_value + ";").reduce("", (sum, option) -> sum + option);
+
+            b.send(REQ_HISTORICAL_TICKS);
+            b.send(reqId);
+            b.send(contract);
+            b.send(startDateTime);
+            b.send(endDateTime);
+            b.send(numberOfTicks);
+            b.send(whatToShow);
+            b.send(useRth);
+            b.send(ignoreSize);
+            b.send(miscOptionsString);
+
+            closeAndSend(b);
+        } catch(Exception e) {
+            error(reqId, EClientErrors.FAIL_SEND_HISTORICAL_TICK, e.toString());
+            close();
+        }        
+    }
   
+    public synchronized void reqTickByTickData(int reqId, Contract contract, String tickType) {
+        // not connected?
+        if( !isConnected()) {
+            notConnected();
+            return;
+        }
+
+        if (m_serverVersion < MIN_SERVER_VER_TICK_BY_TICK) {
+          error(EClientErrors.NO_VALID_ID, EClientErrors.UPDATE_TWS,
+                "  It does not support tick-by-tick data requests.");
+          return;
+        }
+
+        try {
+            Builder b = prepareBuffer(); 
+
+            b.send(REQ_TICK_BY_TICK_DATA);
+            b.send(reqId);
+            b.send(contract.conid());
+            b.send(contract.symbol());
+            b.send(contract.getSecType());
+            b.send(contract.lastTradeDateOrContractMonth());
+            b.send(contract.strike());
+            b.send(contract.getRight());
+            b.send(contract.multiplier());
+            b.send(contract.exchange());
+            b.send(contract.primaryExch());
+            b.send(contract.currency());
+            b.send(contract.localSymbol());
+            b.send(contract.tradingClass());
+            b.send(tickType);
+
+            closeAndSend(b);
+        }
+        catch( Exception e) {
+            error( EClientErrors.NO_VALID_ID,
+                   EClientErrors.FAIL_SEND_REQTICKBYTICK, e.toString());
+            close();
+        }
+    }
+
+    public synchronized void cancelTickByTickData(int reqId) {
+        // not connected?
+        if( !isConnected()) {
+            notConnected();
+            return;
+        }
+
+        if (m_serverVersion < MIN_SERVER_VER_TICK_BY_TICK) {
+          error(EClientErrors.NO_VALID_ID, EClientErrors.UPDATE_TWS,
+                "  It does not support tick-by-tick data cancels.");
+          return;
+        }
+
+        try {
+            Builder b = prepareBuffer(); 
+
+            b.send(CANCEL_TICK_BY_TICK_DATA);
+            b.send(reqId);
+
+            closeAndSend(b);
+        }
+        catch( Exception e) {
+            error( EClientErrors.NO_VALID_ID,
+                   EClientErrors.FAIL_SEND_CANTICKBYTICK, e.toString());
+            close();
+        }
+    }
+    
     /**
      * @deprecated This method is never called.
      */

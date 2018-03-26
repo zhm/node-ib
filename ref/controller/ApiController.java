@@ -69,8 +69,10 @@ public class ApiController implements EWrapper {
 	private final Map<Integer, INewsArticleHandler> m_newsArticleHandlerMap = new HashMap<>();
 	private final Map<Integer, IHistoricalNewsHandler> m_historicalNewsHandlerMap = new HashMap<>();
 	private final Set<IMarketRuleHandler> m_marketRuleHandlers = new ConcurrentHashSet<>();
-    private final Map<Integer, IPnLHandler> m_PnLMap = new HashMap<>();
-    private final Map<Integer, IPnLSingleHandler> m_PnLSingleMap = new HashMap<>();
+    private final Map<Integer, IPnLHandler> m_pnlMap = new HashMap<>();
+    private final Map<Integer, IPnLSingleHandler> m_pnlSingleMap = new HashMap<>();
+    private final Map<Integer, IHistoricalTickHandler> m_historicalTicksMap = new HashMap<>();
+    private final Map<Integer, ITickByTickDataHandler> m_tickByTickDataMap = new HashMap<>();
 	private boolean m_connected = false;
 
 	public ApiConnection client() { return m_client; }
@@ -406,8 +408,8 @@ public class ApiController implements EWrapper {
 
 		@Override
 		public void orderStatus(OrderStatus status, double filled,
-				double remaining, double avgFillPrice, long permId,
-				int parentId, double lastFillPrice, int clientId, String whyHeld) {
+				double remaining, double avgFillPrice, int permId,
+				int parentId, double lastFillPrice, int clientId, String whyHeld, double mktCapPrice) {
 			// TODO Auto-generated method stub
 			
 		} });
@@ -814,7 +816,7 @@ public class ApiController implements EWrapper {
 	 *  Compare to ILiveOrderHandler. */
 	public interface IOrderHandler {
 		void orderState(OrderState orderState);
-		void orderStatus(OrderStatus status, double filled, double remaining, double avgFillPrice, long permId, int parentId, double lastFillPrice, int clientId, String whyHeld);
+		void orderStatus(OrderStatus status, double filled, double remaining, double avgFillPrice, int permId, int parentId, double lastFillPrice, int clientId, String whyHeld, double mktCapPrice);
 		void handle(int errorCode, String errorMsg);
 	}
 
@@ -869,7 +871,7 @@ public class ApiController implements EWrapper {
 	public interface ILiveOrderHandler {
 		void openOrder(Contract contract, Order order, OrderState orderState);
 		void openOrderEnd();
-		void orderStatus(int orderId, OrderStatus status, double filled, double remaining, double avgFillPrice, long permId, int parentId, double lastFillPrice, int clientId, String whyHeld);
+		void orderStatus(int orderId, OrderStatus status, double filled, double remaining, double avgFillPrice, int permId, int parentId, double lastFillPrice, int clientId, String whyHeld, double mktCapPrice);
 		void handle(int orderId, int errorCode, String errorMsg);  // add permId?
 	}
 
@@ -925,14 +927,14 @@ public class ApiController implements EWrapper {
 		recEOM();
 	}
 
-	@Override public void orderStatus(int orderId, String status, double filled, double remaining, double avgFillPrice, int permId, int parentId, double lastFillPrice, int clientId, String whyHeld) {
+	@Override public void orderStatus(int orderId, String status, double filled, double remaining, double avgFillPrice, int permId, int parentId, double lastFillPrice, int clientId, String whyHeld, double mktCapPrice) {
 		IOrderHandler handler = m_orderHandlers.get( orderId);
 		if (handler != null) {
-			handler.orderStatus( OrderStatus.valueOf( status), filled, remaining, avgFillPrice, permId, parentId, lastFillPrice, clientId, whyHeld);
+			handler.orderStatus( OrderStatus.valueOf( status), filled, remaining, avgFillPrice, permId, parentId, lastFillPrice, clientId, whyHeld, mktCapPrice);
 		}
 
 		for (ILiveOrderHandler liveOrderHandler : m_liveOrderHandlers) {
-			liveOrderHandler.orderStatus(orderId, OrderStatus.valueOf( status), filled, remaining, avgFillPrice, permId, parentId, lastFillPrice, clientId, whyHeld);
+			liveOrderHandler.orderStatus(orderId, OrderStatus.valueOf( status), filled, remaining, avgFillPrice, permId, parentId, lastFillPrice, clientId, whyHeld, mktCapPrice);
 		}
 		recEOM();
 	}
@@ -1677,7 +1679,7 @@ public class ApiController implements EWrapper {
 	
 	public interface IPnLHandler {
 
-        void pnl(int reqId, double dailyPnL, double unrealizedPnL);
+        void pnl(int reqId, double dailyPnL, double unrealizedPnL, double realizedPnL);
 	    
 	}
 
@@ -1687,7 +1689,7 @@ public class ApiController implements EWrapper {
 
 	    int reqId = m_reqId++;
 
-	    m_PnLMap.put(reqId, handler);
+	    m_pnlMap.put(reqId, handler);
 
 	    m_client.reqPnL(reqId, account, modelCode);
 	}
@@ -1696,7 +1698,7 @@ public class ApiController implements EWrapper {
 	    if (!checkConnection())
 	        return;
 
-	    Integer reqId = getAndRemoveKey(m_PnLMap, handler);
+	    Integer reqId = getAndRemoveKey(m_pnlMap, handler);
 
 	    if (reqId != null) {
 	        m_client.cancelPnL(reqId);
@@ -1705,11 +1707,11 @@ public class ApiController implements EWrapper {
 	}	
 
     @Override
-    public void pnl(int reqId, double dailyPnL, double unrealizedPnL) {
-        IPnLHandler handler = m_PnLMap.get(reqId);
+    public void pnl(int reqId, double dailyPnL, double unrealizedPnL, double realizedPnL) {
+        IPnLHandler handler = m_pnlMap.get(reqId);
         
         if (handler != null) {
-            handler.pnl(reqId, dailyPnL, unrealizedPnL);
+            handler.pnl(reqId, dailyPnL, unrealizedPnL, realizedPnL);
         }
         
         recEOM();
@@ -1717,7 +1719,7 @@ public class ApiController implements EWrapper {
     
     public interface IPnLSingleHandler {
 
-        void pnlSingle(int reqId, int pos, double dailyPnL, double unrealizedPnL, double value);
+        void pnlSingle(int reqId, int pos, double dailyPnL, double unrealizedPnL, double realizedPnL, double value);
         
     }
 
@@ -1727,7 +1729,7 @@ public class ApiController implements EWrapper {
 
         int reqId = m_reqId++;
 
-        m_PnLSingleMap.put(reqId, handler);
+        m_pnlSingleMap.put(reqId, handler);
 
         m_client.reqPnLSingle(reqId, account, modelCode, conId);
     }
@@ -1736,7 +1738,7 @@ public class ApiController implements EWrapper {
         if (!checkConnection())
             return;
 
-        Integer reqId = getAndRemoveKey(m_PnLSingleMap, handler);
+        Integer reqId = getAndRemoveKey(m_pnlSingleMap, handler);
 
         if (reqId != null) {
             m_client.cancelPnLSingle(reqId);
@@ -1745,13 +1747,130 @@ public class ApiController implements EWrapper {
     }    
 
     @Override
-    public void pnlSingle(int reqId, int pos, double dailyPnL, double unrealizedPnL, double value) {
-        IPnLSingleHandler handler = m_PnLSingleMap.get(reqId);
+    public void pnlSingle(int reqId, int pos, double dailyPnL, double unrealizedPnL, double realizedPnL, double value) {
+        IPnLSingleHandler handler = m_pnlSingleMap.get(reqId);
         
         if (handler != null) {
-            handler.pnlSingle(reqId, pos, dailyPnL, unrealizedPnL, value);
+            handler.pnlSingle(reqId, pos, dailyPnL, unrealizedPnL, realizedPnL, value);
         }
         
         recEOM();
     }
+    
+    public interface IHistoricalTickHandler {
+
+        void historicalTick(int reqId, List<HistoricalTick> ticks);        
+        void historicalTickBidAsk(int reqId, List<HistoricalTickBidAsk> ticks);        
+        void historicalTickLast(int reqId, List<HistoricalTickLast> ticks);
+        
+    }
+
+    public void reqHistoricalTicks(Contract contract, String startDateTime,
+            String endDateTime, int numberOfTicks, String whatToShow, int useRth, boolean ignoreSize, IHistoricalTickHandler handler) {
+        if (!checkConnection())
+            return;
+
+        int reqId = m_reqId++;
+
+        m_historicalTicksMap.put(reqId, handler);
+
+        m_client.reqHistoricalTicks(reqId, contract, startDateTime, endDateTime, numberOfTicks, whatToShow, useRth, ignoreSize, Collections.emptyList());
+    }   
+
+    @Override
+    public void historicalTicks(int reqId, List<HistoricalTick> ticks, boolean last) {
+        IHistoricalTickHandler handler = m_historicalTicksMap.get(reqId);
+        
+        if (handler != null) {
+            handler.historicalTick(reqId, ticks);
+        }
+        
+        recEOM();
+    }
+    
+    @Override
+    public void historicalTicksBidAsk(int reqId, List<HistoricalTickBidAsk> ticks, boolean done) {
+        IHistoricalTickHandler handler = m_historicalTicksMap.get(reqId);
+        
+        if (handler != null) {
+            handler.historicalTickBidAsk(reqId, ticks);
+        }
+        
+        recEOM();
+    }
+
+    @Override
+    public void historicalTicksLast(int reqId, List<HistoricalTickLast> ticks, boolean done) {
+        IHistoricalTickHandler handler = m_historicalTicksMap.get(reqId);
+        
+        if (handler != null) {
+            handler.historicalTickLast(reqId, ticks);
+        }
+        
+
+        recEOM();
+    }
+
+    public interface ITickByTickDataHandler {
+        void tickByTickAllLast(int reqId, int tickType, long time, double price, int size, TickAttr attribs, String exchange, String specialConditions);
+        void tickByTickBidAsk(int reqId, long time, double bidPrice, double askPrice, int bidSize, int askSize, TickAttr attribs);
+        void tickByTickMidPoint(int reqId, long time, double midPoint);
+    }
+
+    public void reqTickByTickData(Contract contract, String tickType, ITickByTickDataHandler handler) {
+        if (!checkConnection())
+            return;
+
+        int reqId = m_reqId++;
+        m_tickByTickDataMap.put( reqId, handler);
+        m_client.reqTickByTickData( reqId, contract, tickType);
+        sendEOM();
+    }
+
+    public void cancelTickByTickData( ITickByTickDataHandler handler) {
+        if (!checkConnection())
+            return;
+
+        Integer reqId = getAndRemoveKey( m_tickByTickDataMap, handler);
+        if (reqId != null) {
+            m_client.cancelTickByTickData( reqId);
+            sendEOM();
+        }
+    }
+
+    @Override
+    public void tickByTickAllLast(int reqId, int tickType, long time, double price, int size, TickAttr attribs,
+            String exchange, String specialConditions) {
+        ITickByTickDataHandler handler = m_tickByTickDataMap.get(reqId);
+
+        if (handler != null) {
+            handler.tickByTickAllLast(reqId, tickType, time, price, size, attribs, exchange, specialConditions);
+        }
+
+        recEOM();
+    }
+
+    @Override
+    public void tickByTickBidAsk(int reqId, long time, double bidPrice, double askPrice, int bidSize, int askSize,
+            TickAttr attribs) {
+        ITickByTickDataHandler handler = m_tickByTickDataMap.get(reqId);
+
+        if (handler != null) {
+            handler.tickByTickBidAsk(reqId, time, bidPrice, askPrice, bidSize, askSize, attribs);
+        }
+
+        recEOM();
+    }
+    
+    @Override
+    public void tickByTickMidPoint(int reqId, long time, double midPoint) {
+        ITickByTickDataHandler handler = m_tickByTickDataMap.get(reqId);
+
+        if (handler != null) {
+            handler.tickByTickMidPoint(reqId, time, midPoint);
+        }
+
+        recEOM();
+    }
+    
 }

@@ -24,7 +24,7 @@ public interface EWrapper {
 			String futureLastTradeDate, double dividendImpact, double dividendsToLastTradeDate);
     void orderStatus( int orderId, String status, double filled, double remaining,
             double avgFillPrice, int permId, int parentId, double lastFillPrice,
-            int clientId, String whyHeld);
+            int clientId, String whyHeld, double mktCapPrice);
     void openOrder( int orderId, Contract contract, Order order, OrderState orderState);
     void openOrderEnd();
     void updateAccountValue(String key, String value, String currency, String accountName);
@@ -95,7 +95,13 @@ public interface EWrapper {
 	void rerouteMktDataReq(int reqId, int conId, String exchange);
 	void rerouteMktDepthReq(int reqId, int conId, String exchange);
     void marketRule(int marketRuleId, PriceIncrement[] priceIncrements);
-	void pnl(int reqId, double dailyPnL, double unrealizedPnL);
-	void pnlSingle(int reqId, int pos, double dailyPnL, double unrealizedPnL, double value);
+	void pnl(int reqId, double dailyPnL, double unrealizedPnL, double realizedPnL);
+	void pnlSingle(int reqId, int pos, double dailyPnL, double unrealizedPnL, double realizedPnL, double value);
+    void historicalTicks(int reqId, List<HistoricalTick> ticks, boolean done);
+    void historicalTicksBidAsk(int reqId, List<HistoricalTickBidAsk> ticks, boolean done);
+    void historicalTicksLast(int reqId, List<HistoricalTickLast> ticks, boolean done);
+    void tickByTickAllLast(int reqId, int tickType, long time, double price, int size, TickAttr attribs, String exchange, String specialConditions);
+    void tickByTickBidAsk(int reqId, long time, double bidPrice, double askPrice, int bidSize, int askSize, TickAttr attribs);
+    void tickByTickMidPoint(int reqId, long time, double midPoint);
 }
 

@@ -17,7 +17,8 @@ public class EWrapperMsgGenerator {
     
 	public static String tickPrice( int tickerId, int field, double price, TickAttr attribs) {
     	return "id=" + tickerId + "  " + TickType.getField( field) + "=" + price + " " + 
-        (attribs.canAutoExecute() ? " canAutoExecute" : " noAutoExecute") + " pastLimit = " + attribs.pastLimit();
+        (attribs.canAutoExecute() ? " canAutoExecute" : " noAutoExecute") + " pastLimit = " + attribs.pastLimit() +
+        (field == TickType.BID.index() || field == TickType.ASK.index() ? " preOpen = " + attribs.preOpen() : "");
     }
 	
     public static String tickSize( int tickerId, int field, int size) {
@@ -58,11 +59,11 @@ public class EWrapperMsgGenerator {
     
     public static String orderStatus( int orderId, String status, double filled, double remaining,
             double avgFillPrice, int permId, int parentId, double lastFillPrice,
-            int clientId, String whyHeld) {
+            int clientId, String whyHeld, double mktCapPrice) {
     	return "order status: orderId=" + orderId + " clientId=" + clientId + " permId=" + permId +
         " status=" + status + " filled=" + filled + " remaining=" + remaining +
         " avgFillPrice=" + avgFillPrice + " lastFillPrice=" + lastFillPrice +
-        " parent Id=" + parentId + " whyHeld=" + whyHeld;
+        " parent Id=" + parentId + " whyHeld=" + whyHeld + " mktCapPrice=" + mktCapPrice;
     }
     
     public static String openOrder( int orderId, Contract contract, Order order, OrderState orderState) {
@@ -298,6 +299,7 @@ public class EWrapperMsgGenerator {
         + "underSymbol = " + contractDetails.underSymbol() + "\n"
         + "underSecType = " + contractDetails.underSecType() + "\n"
         + "marketRuleIds = " + contractDetails.marketRuleIds() + "\n"
+        + "realExpirationDate = " + contractDetails.realExpirationDate() + "\n"
         + contractDetailsSecIdList(contractDetails);
     }
     
@@ -395,6 +397,7 @@ public class EWrapperMsgGenerator {
         + "evRule = " + execution.evRule() + "\n"
         + "evMultiplier = " + execution.evMultiplier() + "\n"
         + "modelCode = " + execution.modelCode() + "\n"
+        + "lastLiquidity = " + execution.lastLiquidity() + "\n"
         + " ---- Execution Details end ----\n";
     }
     
@@ -772,11 +775,47 @@ public class EWrapperMsgGenerator {
 	}
 	
 
-    public static String pnl(int reqId, double dailyPnL, double unrealizedPnL) {
-		return "Daily PnL. Req Id: " + reqId + ", daily PnL: " + dailyPnL + ", unrealizedPnL: " + unrealizedPnL;
+    public static String pnl(int reqId, double dailyPnL, double unrealizedPnL, double realizedPnL) {
+		return "Daily PnL. Req Id: " + reqId + ", daily PnL: " + dailyPnL + ", unrealizedPnL: " + unrealizedPnL + ", realizedPnL: " + realizedPnL;
     }
     
-    public static String pnlSingle(int reqId, int pos, double dailyPnL, double unrealizedPnL, double value) {
-		return "Daily PnL Single. Req Id: " + reqId + ", pos: " + pos + ", daily PnL: " + dailyPnL + ", unrealizedPnL: " + unrealizedPnL + ", value: " + value;
+    public static String pnlSingle(int reqId, int pos, double dailyPnL, double unrealizedPnL, double realizedPnL, double value) {
+		return "Daily PnL Single. Req Id: " + reqId + ", pos: " + pos + ", daily PnL: " + dailyPnL + ", unrealizedPnL: " + unrealizedPnL + ", realizedPnL: " + realizedPnL + ", value: " + value;
+    }
+
+    public static String historicalTick(int reqId, long time, double price, long size) {
+        return "Historical Tick. Req Id: " + reqId + ", time: " + time + ", price: " + price + ", size: " 
+                + size;
+    }
+
+    public static String historicalTickBidAsk(int reqId, long time, int mask, double priceBid, double priceAsk,
+            long sizeBid, long sizeAsk) {
+        return "Historical Tick Bid/Ask. Req Id: " + reqId + ", time: " + time + ", bid price: " + priceBid 
+                + ", ask price: " + priceAsk + ", bid size: " + sizeBid + ", ask size: " + sizeAsk;
+    }
+
+    public static String historicalTickLast(int reqId, long time, int mask, double price, long size, String exchange,
+            String specialConditions) {        
+        return "Historical Tick Last. Req Id: " + reqId + ", time: " + time + ", price: " + price + ", size: " 
+                + size + ", exchange: " + exchange + ", special conditions:" + specialConditions;
+    }
+    
+    public static String tickByTickAllLast(int reqId, int tickType, long time, double price, int size, TickAttr attribs, 
+            String exchange, String specialConditions){
+        return (tickType == 1 ? "Last." : "AllLast.") +
+                " Req Id: " + reqId + " Time: " + Util.UnixSecondsToString(time, "yyyyMMdd-HH:mm:ss zzz") + " Price: " + price + " Size: " + size +
+                " Exch: " + exchange + " Spec Cond: " + specialConditions + (attribs.pastLimit() ? " pastLimit" : "") +
+                (tickType == 1 ? "" : (attribs.unreported() ? " unreported" : ""));
+    }
+    
+    public static String tickByTickBidAsk(int reqId, long time, double bidPrice, double askPrice, int bidSize, int askSize,
+            TickAttr attribs){
+        return "BidAsk. Req Id: " + reqId + " Time: " + Util.UnixSecondsToString(time, "yyyyMMdd-HH:mm:ss zzz") + " BidPrice: " + bidPrice + 
+                " AskPrice: " + askPrice + " BidSize: " + bidSize + " AskSize: " + askSize + 
+                (attribs.bidPastLow() ? " bidPastLow" : "") + (attribs.askPastHigh() ? " askPastHigh" : "");
+    }
+
+    public static String tickByTickMidPoint(int reqId, long time, double midPoint){
+        return "MidPoint. Req Id: " + reqId + " Time: " + Util.UnixSecondsToString(time, "yyyyMMdd-HH:mm:ss zzz") + " MidPoint: " + midPoint;
     }
 }
